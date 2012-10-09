@@ -7,7 +7,7 @@ import urllib
 import urlparse
 
 
-__version__ = '1.11'
+__version__ = '1.14'
 __all__ = ['PremailerError', 'Premailer', 'transform']
 
 
@@ -88,7 +88,7 @@ FILTER_PSEUDOSELECTORS = [':last-child', ':first-child', 'nth-child']
 
 class Premailer(object):
 
-    def __init__(self, html, base_url=None,
+    def __init__(self, xml, base_url=None,
                  preserve_internal_links=False,
                  exclude_pseudoclasses=False,
                  keep_style_tags=False,
@@ -96,7 +96,7 @@ class Premailer(object):
                  remove_classes=True,
                  strip_important=True,
                  external_styles=None):
-        self.html = html
+        self.xml = xml
         self.base_url = base_url
         self.preserve_internal_links = preserve_internal_links
         self.exclude_pseudoclasses = exclude_pseudoclasses
@@ -138,23 +138,23 @@ class Premailer(object):
         return rules, leftover
 
     def transform(self, pretty_print=True):
-        """change the self.html and return it with CSS turned into style
+        """change the self.xml and return it with CSS turned into style
         attributes.
         """
         if etree is None:
-            return self.html
+            return self.xml
 
-        parser = etree.HTMLParser()
-        stripped = self.html.strip()
+        parser = etree.XMLParser()
+        stripped = self.xml.strip()
         tree = etree.fromstring(stripped, parser).getroottree()
         page = tree.getroot()
         # lxml inserts a doctype if none exists, so only include it in
-        # the root if it was in the original html.
+        # the root if it was in the original xml.
         root = tree if stripped.startswith(tree.docinfo.doctype) else page
 
         if page is None:
-            print repr(self.html)
-            raise PremailerError("Could not parse the html")
+            print repr(self.xml)
+            raise PremailerError("Could not parse the xml")
         assert page is not None
 
         ##
@@ -166,13 +166,24 @@ class Premailer(object):
         for style in CSSSelector('style')(page):
             these_rules, these_leftover = self._parse_style_rules(style.text)
             rules.extend(these_rules)
+			
+            #print(these_rules) #### Test
 
             parent_of_style = style.getparent()
             if these_leftover:
                 style.text = '\n'.join(['%s {%s}' % (k, v) for
                                         (k, v) in these_leftover])
             elif not self.keep_style_tags:
-                parent_of_style.remove(style)
+                parent_of_style.remove(style) 
+				#### seems to be wrong: we should check it only if we do not have all other cascading kinds of styles
+				
+		###
+        # for style in CSSSelector('class')(page):
+            # these_rules, these_leftover = self._parse_style_rules(style.text)
+            # rules.extend(these_rules)
+            
+            # print(these_rules) #### Test
+		###
 
         if self.external_styles:
             for stylefile in self.external_styles:
@@ -217,8 +228,7 @@ class Premailer(object):
                 else:
                     new_style = _merge_styles(old_style, style, class_)
                 item.attrib['style'] = new_style
-                self._style_to_basic_html_attributes(item, new_style,
-                                                     force=True)
+                #### self._style_to_basic_html_attributes(item, new_style, force=True)
 
         # Re-apply initial inline styles.
         for item, inline_style in first_time_styles:
@@ -227,7 +237,7 @@ class Premailer(object):
                 continue
             new_style = _merge_styles(old_style, inline_style, class_)
             item.attrib['style'] = new_style
-            self._style_to_basic_html_attributes(item, new_style, force=True)
+            #### self._style_to_basic_html_attributes(item, new_style, force=True)
 
         if self.remove_classes:
             # now we can delete all 'class' attributes
@@ -248,55 +258,18 @@ class Premailer(object):
                     parent.attrib[attr] = urlparse.urljoin(self.base_url,
                                                            parent.attrib[attr])
 
-        out = etree.tostring(root, method="html", pretty_print=pretty_print)
+        out = etree.tostring(root, method="xml", pretty_print=pretty_print)
         if self.strip_important:
             out = _importants.sub('', out)
         return out
 
-    def _style_to_basic_html_attributes(self, element, style_content,
-                                        force=False):
-        """given an element and styles like
-        'background-color:red; font-family:Arial' turn some of that into HTML
-        attributes. like 'bgcolor', etc.
 
-        Note, the style_content can contain pseudoclasses like:
-        '{color:red; border:1px solid green} :visited{border:1px solid green}'
-        """
-        if style_content.count('}') and \
-          style_content.count('{') == style_content.count('{'):
-            style_content = style_content.split('}')[0][1:]
-
-        attributes = {}
-        for key, value in [x.split(':') for x in style_content.split(';')
-                           if len(x.split(':')) == 2]:
-            key = key.strip()
-
-            if key == 'text-align':
-                attributes['align'] = value.strip()
-            elif key == 'background-color':
-                attributes['bgcolor'] = value.strip()
-            elif key == 'width' or key == 'height':
-                value = value.strip()
-                if value.endswith('px'):
-                    value = value[:-2]
-                attributes[key] = value
-            #else:
-            #    print "key", repr(key)
-            #    print 'value', repr(value)
-
-        for key, value in attributes.items():
-            if key in element.attrib and not force:
-                # already set, don't dare to overwrite
-                continue
-            element.attrib[key] = value
-
-
-def transform(html, base_url=None):
-    return Premailer(html, base_url=base_url).transform()
+def transform(xml, base_url=None):
+    return Premailer(xml, base_url=base_url, keep_style_tags=True).transform()
 
 
 if __name__ == '__main__':
-    html = """<html>
+    xml = """<html>
         <head>
         <title>Test</title>
         <style>
@@ -314,5 +287,5 @@ if __name__ == '__main__':
         <p class="footer" style="color:red">Feetnuts</p>
         </body>
         </html>"""
-    p = Premailer(html)
+    p = Premailer(xml)
     print p.transform()
